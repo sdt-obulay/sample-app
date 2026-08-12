@@ -22,3 +22,9 @@ export function addTask(task: Task): Task {
 export function getNextId(): number {
   return nextId++;
 }
+
+export const taskStore = {
+  add: addTask,
+  list: getAllTasks,
+  nextId: getNextId,
+};

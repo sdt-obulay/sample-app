@@ -1,7 +1,8 @@
 import express, { Request, Response } from 'express';
-import { addTask, getAllTasks, getNextId } from './store';
-import { filterByMinPriority, topTasks } from './tasks';
-import { Priority, Task } from './types';
+import { getAllTasks, taskStore } from './store';
+import { completeTask, createTask, filterByMinPriority, topTasks } from './tasks';
+import { Priority } from './types';
+import { validateCreateTask, validateTaskId } from './validation';
 
 export const router = express.Router();
 
@@ -21,28 +22,38 @@ router.get('/tasks/top', (req: Request, res: Response) => {
 });
 
 // POST /tasks  -> create a task
-// SECURITY/VALIDATION GAP (planted): the request body is trusted as-is.
-// `title` and `priority` are never validated, so empty titles, missing
-// fields, huge payloads, or out-of-range priorities are all accepted.
 router.post('/tasks', (req: Request, res: Response) => {
-  const body = req.body as { title: string; priority: Priority };
-  const task: Task = {
-    id: getNextId(),
-    title: body.title,
-    priority: body.priority,
-    done: false,
-    createdAt: new Date().toISOString(),
-  };
-  addTask(task);
+  const parsed = validateCreateTask(req.body);
+  if (!parsed.ok) {
+    return res.status(400).json({ error: parsed.error });
+  }
+
+  const task = createTask(parsed.value, {
+    nextId: taskStore.nextId,
+    now: () => new Date(),
+  });
+  taskStore.add(task);
   return res.status(201).json(task);
 });
 
+// POST /tasks/:id/complete  -> mark a task as complete
+router.post('/tasks/:id/complete', (req: Request, res: Response) => {
+  const parsedId = validateTaskId(req.params.id);
+  if (!parsedId.ok) {
+    return res.status(400).json({ error: parsedId.error });
+  }
+
+  const task = completeTask(parsedId.value);
+  if (!task) {
+    return res.status(404).json({ error: 'task not found' });
+  }
+
+  return res.json(task);
+});
+
 // GET /tasks/search?q=  -> search task titles
-// SECURITY GAP (planted): builds a RegExp directly from user input.
-// This allows ReDoS (catastrophic backtracking) from a crafted `q`.
 router.get('/tasks/search', (req: Request, res: Response) => {
-  const q = String(req.query.q ?? '');
-  const pattern = new RegExp(q);
-  const results = getAllTasks().filter((t) => pattern.test(t.title));
+  const q = String(req.query.q ?? '').toLowerCase();
+  const results = getAllTasks().filter((t) => t.title.toLowerCase().includes(q));
   return res.json(results);
 });
